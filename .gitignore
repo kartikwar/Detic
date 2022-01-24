@@ -1,4 +1,5 @@
 detic-env/
+detic-inputs/
 third_party/detectron2
 ./models
 configs-experimental
