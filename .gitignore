@@ -1,3 +1,4 @@
+detic-env/
 third_party/detectron2
 ./models
 configs-experimental
