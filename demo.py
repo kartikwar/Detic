@@ -110,6 +110,14 @@ def process_im_path(path):
     img = read_image(path, format="BGR")
     start_time = time.time()
     predictions, visualized_output = demo.run_on_image(img)
+    masks = predictions['instances'].pred_masks.cpu().detach().numpy()
+    masks = np.sum(masks, axis=0)
+    mask = np.where(masks>0, 1, 0)
+    mask = mask*255
+    mask = mask.astype('uint8')
+    # img_trans = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
+    # img_trans[:,:,3]= mask.astype('uint8')
+    # cv2.imwrite('lol.png', img_trans)
     logger.info(
         "{}: {} in {:.2f}s".format(
             path,
@@ -127,7 +135,9 @@ def process_im_path(path):
         else:
             assert len(args.input) == 1, "Please specify a directory with args.output"
             out_filename = args.output
-        visualized_output.save(out_filename)
+        # visualized_output.save(out_filename)
+        cv2.imwrite(out_filename, mask)
+        
     else:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
         cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
