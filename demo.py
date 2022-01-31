@@ -125,13 +125,16 @@ def process_im_path(path, saliency_path):
     
     
     for mask in masks:
-        lookup = saliency_mask[mask]
+        lookup = np.where(mask==True, saliency_mask/255.0 , 0)
+        lookup = np.where(lookup > 0.05, lookup, 0)
+        cv2.imwrite('lookup.jpg', lookup*255)
+        # lookup = saliency_mask[mask]
         lookup_pixels = np.count_nonzero(lookup)
         total_pixels = np.count_nonzero(mask)
         thresh = 0
         if total_pixels > 0:
             thresh = lookup_pixels/total_pixels
-        if thresh > 0.8:
+        if thresh > 0.9:
             # result[mask] = mask
             result.append(mask)
             append_count += 1
