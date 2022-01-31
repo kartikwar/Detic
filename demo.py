@@ -64,6 +64,10 @@ def get_parser():
         "If not given, will show output in an OpenCV window.",
     )
     parser.add_argument(
+        "--saliency_mask",
+        help="A file or directory containing the saliency/transparency mask",
+    )
+    parser.add_argument(
         "--vocabulary",
         default="lvis",
         choices=['lvis', 'openimages', 'objects365', 'coco', 'custom'],
@@ -106,27 +110,54 @@ def test_opencv_video_format(codec, file_ext):
             return True
         return False
 
-def process_im_path(path):
+def process_im_path(path, saliency_path):
+    saliency_mask = cv2.imread(saliency_path, 0)
     img = read_image(path, format="BGR")
+    saliency_mask = cv2.resize(saliency_mask, (img.shape[1], img.shape[0]))
+    # result = np.zeros(img.shape[:2])
+    result = []
+    append_count = 0
     start_time = time.time()
     predictions, visualized_output = demo.run_on_image(img)
+    
     masks = predictions['instances'].pred_masks.cpu().detach().numpy()
-    masks = np.sum(masks, axis=0)
-    mask = np.where(masks>0, 1, 0)
-    mask = mask*255
-    mask = mask.astype('uint8')
+    
+    
+    
+    for mask in masks:
+        lookup = saliency_mask[mask]
+        lookup_pixels = np.count_nonzero(lookup)
+        total_pixels = np.count_nonzero(mask)
+        thresh = 0
+        if total_pixels > 0:
+            thresh = lookup_pixels/total_pixels
+        if thresh > 0.8:
+            # result[mask] = mask
+            result.append(mask)
+            append_count += 1
+        temp = 0
+    
+    if len(result) > 0:
+        result = np.array(result)
+        result = np.sum(result, axis=0)
+        result = np.where(result>0, 1, 0)
+        result = result*255
+        result = result.astype('uint8')
+    else:
+        result = np.zeros(img.shape[:2])
     # img_trans = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
     # img_trans[:,:,3]= mask.astype('uint8')
     # cv2.imwrite('lol.png', img_trans)
     logger.info(
         "{}: {} in {:.2f}s".format(
             path,
-            "detected {} instances".format(len(predictions["instances"]))
+            "detected {} out of {} instances ".format(append_count, len(predictions["instances"]))
             if "instances" in predictions
             else "finished",
             time.time() - start_time,
         )
     )
+    
 
     if args.output:
         if os.path.isdir(args.output):
@@ -135,8 +166,10 @@ def process_im_path(path):
         else:
             assert len(args.input) == 1, "Please specify a directory with args.output"
             out_filename = args.output
-        visualized_output.save(out_filename)
+        # visualized_output.save(out_filename)
         # cv2.imwrite(out_filename, mask)
+        cv2.imwrite(out_filename, result)
+        cv2.imwrite(saliency_path, saliency_mask)
         
     else:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -163,11 +196,13 @@ if __name__ == "__main__":
             if os.path.isdir(inp_path):
                 # temp = 0
                 for file_path in os.listdir(inp_path):
+                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.jpg', '_sal_fuse.png'))
                     file_path = os.path.join(inp_path, file_path)
-                    process_im_path(file_path)
+                    process_im_path(file_path, saliency_path)
+                    # process_im_path(file_path)
             else:
                 # for path in tqdm.tqdm(args.input, disable=not args.output):
-                process_im_path(inp_path)
+                process_im_path(inp_path, args.saliency_mask)
     elif args.webcam:
         assert args.input is None, "Cannot have both --input and --webcam!"
         assert args.output is None, "output not yet supported with --webcam!"
