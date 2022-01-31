@@ -135,8 +135,8 @@ def process_im_path(path):
         else:
             assert len(args.input) == 1, "Please specify a directory with args.output"
             out_filename = args.output
-        # visualized_output.save(out_filename)
-        cv2.imwrite(out_filename, mask)
+        visualized_output.save(out_filename)
+        # cv2.imwrite(out_filename, mask)
         
     else:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
