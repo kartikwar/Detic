@@ -110,6 +110,21 @@ def test_opencv_video_format(codec, file_ext):
             return True
         return False
 
+def sad_calculation(mask, lookup):
+    # mask = cv2.resize(mask.astype('float64'), (500,500))
+    # lookup = cv2.resize(lookup, (500, 500))
+
+    # assert(mask.shape == lookup.shape)
+    # assert(mask.dtype == lookup.dtype)
+
+    mse_diff = ((mask - lookup) ** 2).sum()
+    sad_diff = np.abs(mask - lookup).sum()
+
+    print(sad_diff)
+
+    return sad_diff, mse_diff
+    # pass
+
 def process_im_path(path, saliency_path):
     saliency_mask = cv2.imread(saliency_path, 0)
     img = read_image(path, format="BGR")
@@ -126,18 +141,23 @@ def process_im_path(path, saliency_path):
     
     for mask in masks:
         lookup = np.where(mask==True, saliency_mask/255.0 , 0)
-        lookup = np.where(lookup > 0.05, lookup, 0)
-        cv2.imwrite('lookup.jpg', lookup*255)
-        # lookup = saliency_mask[mask]
-        lookup_pixels = np.count_nonzero(lookup)
         total_pixels = np.count_nonzero(mask)
-        thresh = 0
-        if total_pixels > 0:
-            thresh = lookup_pixels/total_pixels
-        if thresh > 0.9:
-            # result[mask] = mask
-            result.append(mask)
-            append_count += 1
+         
+        # lookup = np.where(lookup > 0.05, lookup, 0)
+        
+        if not np.all(lookup == 0.) and total_pixels > 0:
+            sad_diff, mse_diff = sad_calculation(mask, lookup)
+            cv2.imwrite('lookup.jpg', lookup*255)
+            # lookup = saliency_mask[mask]
+            # lookup_pixels = np.count_nonzero(lookup)
+            thresh = sad_diff/total_pixels
+
+            confidence = 1. - thresh
+            
+            if confidence > 0.85:
+                # result[mask] = mask
+                result.append(mask)
+                append_count += 1
         temp = 0
     
     if len(result) > 0:
