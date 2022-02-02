@@ -120,7 +120,7 @@ def sad_calculation(mask, lookup):
     mse_diff = ((mask - lookup) ** 2).sum()
     sad_diff = np.abs(mask - lookup).sum()
 
-    print(sad_diff)
+    # print(sad_diff)
 
     return sad_diff, mse_diff
     # pass
@@ -221,7 +221,11 @@ if __name__ == "__main__":
                 for file_path in os.listdir(inp_path):
                     saliency_path = os.path.join(args.saliency_mask, file_path.replace('.jpg', '_sal_fuse.png'))
                     file_path = os.path.join(inp_path, file_path)
-                    process_im_path(file_path, saliency_path)
+                    out_filename = os.path.join(args.output, os.path.basename(file_path))
+                    if not os.path.exists(out_filename):
+                        process_im_path(file_path, saliency_path)
+                    else:
+                        print('skipping ', file_path)
                     # process_im_path(file_path)
             else:
                 # for path in tqdm.tqdm(args.input, disable=not args.output):
