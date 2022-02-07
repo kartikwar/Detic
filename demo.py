@@ -219,7 +219,7 @@ if __name__ == "__main__":
             if os.path.isdir(inp_path):
                 # temp = 0
                 for file_path in os.listdir(inp_path):
-                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.jpg', '_sal_fuse.png'))
+                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.png', '_sal_fuse.png'))
                     file_path = os.path.join(inp_path, file_path)
                     out_filename = os.path.join(args.output, os.path.basename(file_path))
                     if not os.path.exists(out_filename):
