@@ -149,6 +149,7 @@ def process_im_path(path, saliency_path):
         if not np.all(lookup == 0.) and total_pixels > 0:
             sad_diff, mse_diff = sad_calculation(mask, lookup)
             cv2.imwrite('lookup.jpg', lookup*255)
+            cv2.imwrite('mask.jpg', mask*255)
             # lookup = saliency_mask[mask]
             # lookup_pixels = np.count_nonzero(lookup)
             thresh = sad_diff/total_pixels
