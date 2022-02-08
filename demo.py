@@ -131,6 +131,7 @@ def process_im_path(path, saliency_path):
     saliency_mask = cv2.resize(saliency_mask, (img.shape[1], img.shape[0]))
     # result = np.zeros(img.shape[:2])
     result = []
+    encountered_pixels = []
     append_count = 0
     start_time = time.time()
     predictions, visualized_output = demo.run_on_image(img)
@@ -151,15 +152,18 @@ def process_im_path(path, saliency_path):
             # lookup = saliency_mask[mask]
             # lookup_pixels = np.count_nonzero(lookup)
             thresh = sad_diff/total_pixels
-
             confidence = 1. - thresh
+            encountered_pixels.append(mask)
             
             if confidence > 0.85:
+            # if 0.7 < confidence < 0.85:
                 # result[mask] = mask
                 result.append(mask)
+                
                 append_count += 1
         temp = 0
     
+    #to do : combine encountered pixels and saliency mask
     if len(result) > 0:
         result = np.array(result)
         result = np.sum(result, axis=0)
@@ -168,6 +172,18 @@ def process_im_path(path, saliency_path):
         result = result.astype('uint8')
     else:
         result = np.zeros(img.shape[:2])
+    
+    if len(encountered_pixels) > 0:
+        encountered_pixels = np.array(encountered_pixels)
+        encountered_pixels = np.sum(encountered_pixels, axis=0)
+        encountered_pixels = np.where(encountered_pixels>0, 1, 0)
+        encountered_pixels = encountered_pixels*255
+        encountered_pixels = encountered_pixels.astype('uint8')
+    else:
+        encountered_pixels = np.zeros(img.shape[:2])
+    
+    corrected_result = np.where(encountered_pixels > 0, result , saliency_mask)
+    
     # img_trans = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
     # img_trans[:,:,3]= mask.astype('uint8')
     # cv2.imwrite('lol.png', img_trans)
@@ -191,8 +207,10 @@ def process_im_path(path, saliency_path):
             out_filename = args.output
         # visualized_output.save(out_filename)
         # cv2.imwrite(out_filename, mask)
-        cv2.imwrite(out_filename, result)
-        cv2.imwrite(saliency_path, saliency_mask)
+        cv2.imwrite(out_filename, corrected_result)
+        # cv2.imwrite(saliency_path, saliency_mask)
+        cv2.imwrite('pixels_encountered.jpg', encountered_pixels)
+        cv2.imwrite('result.jpg', result)
         
     else:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -219,7 +237,7 @@ if __name__ == "__main__":
             if os.path.isdir(inp_path):
                 # temp = 0
                 for file_path in os.listdir(inp_path):
-                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.png', '_sal_fuse.png'))
+                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.jpg', '_sal_fuse.png'))
                     file_path = os.path.join(inp_path, file_path)
                     out_filename = os.path.join(args.output, os.path.basename(file_path))
                     if not os.path.exists(out_filename):
