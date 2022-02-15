@@ -14,6 +14,8 @@ import sys
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
 from detectron2.utils.logger import setup_logger
+import imutils
+import itertools
 
 sys.path.insert(0, 'third_party/CenterNet2/projects/CenterNet2/')
 from centernet.config import add_centernet_config
@@ -64,6 +66,10 @@ def get_parser():
         "If not given, will show output in an OpenCV window.",
     )
     parser.add_argument(
+        "--saliency_mask",
+        help="A file or directory containing the saliency/transparency mask",
+    )
+    parser.add_argument(
         "--vocabulary",
         default="lvis",
         choices=['lvis', 'openimages', 'objects365', 'coco', 'custom'],
@@ -106,27 +112,173 @@ def test_opencv_video_format(codec, file_ext):
             return True
         return False
 
-def process_im_path(path):
+def sad_calculation(mask, lookup):
+    # mask = cv2.resize(mask.astype('float64'), (500,500))
+    # lookup = cv2.resize(lookup, (500, 500))
+
+    # assert(mask.shape == lookup.shape)
+    # assert(mask.dtype == lookup.dtype)
+
+    mse_diff = ((mask - lookup) ** 2).sum()
+    sad_diff = np.abs(mask - lookup).sum()
+
+    # print(sad_diff)
+
+    return sad_diff, mse_diff
+    # pass
+
+# to check if r2 is inside r1
+def contains(r1, r2):
+    return r1[0] < r2[0] < r2[2] < r1[2] and r1[1] < r2[1] < r2[3] < r1[3]
+
+
+def remove_contained_cnts(cnts):
+    cnt_indexes = list(itertools.combinations(range(len(cnts)), 2))
+
+    remove_indexes = []
+
+    keep_indexes = []
+
+    cnts_ = []
+
+    for index_pair in cnt_indexes:
+        indexes = [index_pair[0], index_pair[1]]
+        cnt1, cnt2 = cnts[index_pair[0]], cnts[index_pair[1]]
+        rect_0 = cv2.boundingRect(cnt1)
+        rect_0 = (rect_0[0], rect_0[1], rect_0[0] + rect_0[2], rect_0[1] + rect_0[3])
+        rect_1 = cv2.boundingRect(cnt2)
+        rect_1 = (rect_1[0], rect_1[1], rect_1[0] + rect_1[2], rect_1[1] + rect_1[3])
+
+        # rect1 inside rect0
+        if contains(rect_0, rect_1):
+            #             print(rect_0, rect_1)
+            remove_indexes.append(index_pair[1])
+
+        # rect0 inside rect1
+        elif contains(rect_1, rect_0):
+            #             print(rect_1, rect_0)
+            remove_indexes.append(index_pair[0])
+
+    keep_indexes = [ind for ind in range(len(cnts)) if ind not in remove_indexes]
+
+    cnts_ = [cnts[ind] for ind in keep_indexes]
+
+    return cnts_
+
+def get_contours(mask):
+    masks = []
+    mask = mask * 255
+    mask = mask.astype('uint8')
+    # cv2.imwrite('current_mask.jpg', mask)
+    
+    """
+    draw a black line on all 4 corners of the image,
+    this is done to avoid open contours later on
+    """
+    height, width = mask.shape
+    cv2.line(mask, (0, 0), (0, height), (0, 0, 0), thickness=5)
+    cv2.line(mask, (0, 0), (width, 0), (0, 0, 0), thickness=5)
+    cv2.line(mask, (0, height), (width, height), (0, 0, 0), thickness=5)
+    cv2.line(mask, (width, 0), (width, height), (0, 0, 0), thickness=5)
+    
+    edged = cv2.Canny(mask, 10, 30)
+    kernel = np.ones((5, 5), np.uint8)
+    edged = cv2.dilate(edged, kernel, iterations=1)
+
+    cnts = cv2.findContours(edged, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+
+    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)
+    
+    cnts = remove_contained_cnts(cnts)
+    
+    for cnt in cnts:
+        img_cnt = np.zeros((mask.shape[0], mask.shape[1]))  # create a single channel 200x200 pixel black image plt.imshow(img_cnt)
+        img_cnt = cv2.fillPoly(img_cnt, pts=[cnt], color=(255, 255, 255))
+        # masks.append((np.logical_and(img_cnt, mask)*255).astype('uint8'))
+        masks.append(np.logical_and(img_cnt, mask))
+        # cv2.imwrite('contour.jpg', np.logical_and(img_cnt, mask)*255)
+
+    return masks
+
+def process_im_path(path, saliency_path):
+    saliency_mask = cv2.imread(saliency_path, 0)
     img = read_image(path, format="BGR")
+    saliency_mask = cv2.resize(saliency_mask, (img.shape[1], img.shape[0]))
+    # result = np.zeros(img.shape[:2])
+    result = []
+    encountered_pixels = []
+    append_count = 0
     start_time = time.time()
     predictions, visualized_output = demo.run_on_image(img)
+    
     masks = predictions['instances'].pred_masks.cpu().detach().numpy()
-    masks = np.sum(masks, axis=0)
-    mask = np.where(masks>0, 1, 0)
-    mask = mask*255
-    mask = mask.astype('uint8')
+    
+    
+    
+    for mask in masks:
+        #function to split mask into separate contours
+        cnts = get_contours(mask)
+        
+        for cnt in cnts:
+            lookup = np.where(cnt==True, saliency_mask/255.0 , 0)
+            total_pixels = np.count_nonzero(cnt)
+            
+            # lookup = np.where(lookup > 0.05, lookup, 0)
+            
+            if not np.all(lookup == 0.) and total_pixels > 0:
+                sad_diff, mse_diff = sad_calculation(cnt, lookup)
+                # cv2.imwrite('lookup.jpg', lookup*255)
+                # cv2.imwrite('mask.jpg', cnt*255)
+                # lookup = saliency_mask[mask]
+                # lookup_pixels = np.count_nonzero(lookup)
+                thresh = sad_diff/total_pixels
+                confidence = 1. - thresh
+                encountered_pixels.append(cnt)
+                
+                #hyperparameter (to do : experiment with diff values)
+                #original is 0.85
+                if confidence > 0.85:
+                # if 0.7 < confidence < 0.85:
+                    # result[mask] = mask
+                    result.append(cnt)     
+                    append_count += 1
+            # temp = 0
+    
+    #combine encountered pixels and saliency mask
+    if len(result) > 0:
+        result = np.array(result)
+        result = np.sum(result, axis=0)
+        result = np.where(result>0, 1, 0)
+        result = result*255
+        result = result.astype('uint8')
+    else:
+        result = np.zeros(img.shape[:2])
+    
+    if len(encountered_pixels) > 0:
+        encountered_pixels = np.array(encountered_pixels)
+        encountered_pixels = np.sum(encountered_pixels, axis=0)
+        encountered_pixels = np.where(encountered_pixels>0, 1, 0)
+        encountered_pixels = encountered_pixels*255
+        encountered_pixels = encountered_pixels.astype('uint8')
+    else:
+        encountered_pixels = np.zeros(img.shape[:2])
+    
+    corrected_result = np.where(encountered_pixels > 0, result , saliency_mask)
+    
     # img_trans = cv2.cvtColor(img, cv2.COLOR_BGR2BGRA)
     # img_trans[:,:,3]= mask.astype('uint8')
     # cv2.imwrite('lol.png', img_trans)
     logger.info(
         "{}: {} in {:.2f}s".format(
             path,
-            "detected {} instances".format(len(predictions["instances"]))
+            "detected {} out of {} instances ".format(append_count, len(predictions["instances"]))
             if "instances" in predictions
             else "finished",
             time.time() - start_time,
         )
     )
+    
 
     if args.output:
         if os.path.isdir(args.output):
@@ -135,8 +287,18 @@ def process_im_path(path):
         else:
             assert len(args.input) == 1, "Please specify a directory with args.output"
             out_filename = args.output
-        visualized_output.save(out_filename)
+        # visualized_output.save(out_filename)
         # cv2.imwrite(out_filename, mask)
+        
+        #multiply with saliency mask
+        saliency_mask = saliency_mask.astype('float32')/255.0
+        corrected_result = corrected_result.astype('float32')/255.0
+        corrected_result = saliency_mask * corrected_result
+        corrected_result = corrected_result*255
+        cv2.imwrite(out_filename, corrected_result.astype('uint8'))
+        # cv2.imwrite(saliency_path, saliency_mask)
+        # cv2.imwrite('pixels_encountered.jpg', encountered_pixels)
+        # cv2.imwrite('result.jpg', result)
         
     else:
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
@@ -163,11 +325,17 @@ if __name__ == "__main__":
             if os.path.isdir(inp_path):
                 # temp = 0
                 for file_path in os.listdir(inp_path):
+                    saliency_path = os.path.join(args.saliency_mask, file_path.replace('.jpg', '_sal_fuse.png'))
                     file_path = os.path.join(inp_path, file_path)
-                    process_im_path(file_path)
+                    out_filename = os.path.join(args.output, os.path.basename(file_path))
+                    if not os.path.exists(out_filename):
+                        process_im_path(file_path, saliency_path)
+                    else:
+                        print('skipping ', file_path)
+                    # process_im_path(file_path)
             else:
                 # for path in tqdm.tqdm(args.input, disable=not args.output):
-                process_im_path(inp_path)
+                process_im_path(inp_path, args.saliency_mask)
     elif args.webcam:
         assert args.input is None, "Cannot have both --input and --webcam!"
         assert args.output is None, "output not yet supported with --webcam!"
