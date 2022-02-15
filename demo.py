@@ -236,6 +236,8 @@ def process_im_path(path, saliency_path):
                 confidence = 1. - thresh
                 encountered_pixels.append(cnt)
                 
+                #hyperparameter (to do : experiment with diff values)
+                #original is 0.85
                 if confidence > 0.85:
                 # if 0.7 < confidence < 0.85:
                     # result[mask] = mask
@@ -287,7 +289,13 @@ def process_im_path(path, saliency_path):
             out_filename = args.output
         # visualized_output.save(out_filename)
         # cv2.imwrite(out_filename, mask)
-        cv2.imwrite(out_filename, corrected_result)
+        
+        #multiply with saliency mask
+        saliency_mask = saliency_mask.astype('float32')/255.0
+        corrected_result = corrected_result.astype('float32')/255.0
+        corrected_result = saliency_mask * corrected_result
+        corrected_result = corrected_result*255
+        cv2.imwrite(out_filename, corrected_result.astype('uint8'))
         # cv2.imwrite(saliency_path, saliency_mask)
         # cv2.imwrite('pixels_encountered.jpg', encountered_pixels)
         # cv2.imwrite('result.jpg', result)
